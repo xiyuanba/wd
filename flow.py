@@ -89,6 +89,7 @@ class PreImage(Executor):
             )
             print(a)
             doc.text = a
+            doc.tags = b
             print("===========================")
             print(general_res)
 
@@ -116,6 +117,11 @@ class EnglishToChineseTranslator(Executor):
         for doc in docs:
             # 执行翻译并将结果添加到文档
             translated_text = self.translation(doc.text, max_length=400)[0]['translation_text']
+            for tag_name, tag_value in doc.tags.copy().items():
+                print(f'{tag_name}: {tag_value}')
+                translated_tag = self.translation(tag_name, max_length=400)[0]['translation_text']
+                doc.tags[translated_tag] = tag_value
+                print(f'{translated_tag}: {tag_value}')
             doc.text = translated_text
             print(doc.summary())
             print(doc.text)
@@ -160,7 +166,7 @@ class TextEncoder(Executor):
 
 
 f = Flow().config_gateway(protocol='http', port=12345) \
-    .add(name='predict', uses=PreImage, timeout_ready=36000000) \
+    .add(name='predict', uses=PreImage) \
     .add(name='translate', uses=EnglishToChineseTranslator, needs='predict') \
     .add(name='text_encoder', uses=TextEncoder, needs='translate')
 
