@@ -33,18 +33,18 @@ uploaded_file = st.file_uploader("图片", type=["png", "jpg", "jpeg", "gif"])
 if st.button('上传'):
     # 如果已经选择了文件，则进行处理
     if uploaded_file is not None:
-        saved_file_path = save_uploaded_file(uploaded_file, '/home/yingtie/PycharmProjects/image_index/images/')
+        saved_file_path = save_uploaded_file(uploaded_file, '/home/yingtie/PycharmProjects/wd/images/')
         st.success(f"图片已成功保存到 {saved_file_path}")
 
 
 if st.button('为上传图片建立索引'):
     # 从指定目录读取上传的文件内容
-    image_uri = '/home/yingtie/PycharmProjects/image_index/images/'+ uploaded_file.name
+    image_uri = '/home/yingtie/PycharmProjects/wd/images/'+ uploaded_file.name
     doc = Document(uri=image_uri)
     docs = DocumentArray()
     docs.append(doc)
     # 发送 POST 请求并获取响应数据
-    url = "http://172.66.1.189:12345"
+    url = "http://localhost:12345"
     c = Client(host=url)
     da = c.post(on='/', inputs=docs, show_progress=True, timeout=3600)
     # text = uploaded_file.read().decode('utf-8')
@@ -62,7 +62,7 @@ if st.button('为上传图片建立索引'):
 
 query_keyword = st.text_input('请输入关键词')
 if st.button('搜索') and query_keyword is not None:
-    url = "http://172.66.1.189:12345"
+    url = "http://localhost:12345"
     c = Client(host=url)
     da_search = DocumentArray()
     # t1 = Document(text=query_keyword)

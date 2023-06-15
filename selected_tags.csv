@@ -2407,7 +2407,7 @@ tag_id,name,category,count
 393283,orb,0,5456
 2282,footjob,0,5450
 556987,sparkling_eyes,0,5450
-482590,=3,0,5445
+482590,3,0,5445
 11458,baseball_bat,0,5437
 12438,grapes,0,5437
 15117,police_uniform,0,5434
@@ -4994,7 +4994,7 @@ tag_id,name,category,count
 468165,mixing_bowl,0,1337
 395851,log,0,1336
 1454154,black_pubic_hair,0,1336
-
+,,,
 562826,slapping,0,1334
 4577,snorkel,0,1334
 587202,shoelaces,0,1333
@@ -5625,7 +5625,7 @@ tag_id,name,category,count
 1421701,smokestack_hair_ornament,0,1049
 462605,snack,0,1048
 481999,motorcycle_helmet,0,1048
-612924,"don't_say_""lazy""",0,1048
+612924,don't_say_"lazy",0,1048
 527131,canvas_(object),0,1047
 1510188,dildo_riding,0,1046
 490687,prehensile_tail,0,1046

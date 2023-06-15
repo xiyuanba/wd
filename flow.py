@@ -5,12 +5,13 @@ import onnxruntime as rt
 import pandas as pd
 from PIL import Image
 from Utils import dbimutils
-from transformers import AutoModelWithLMHead, AutoTokenizer, pipeline,BlipProcessor,BlipForConditionalGeneration
+from transformers import AutoModelWithLMHead, AutoTokenizer, pipeline,BlipProcessor,BlipForConditionalGeneration,AutoModelForSeq2SeqLM
 import torch
 from tqdm import tqdm
 from pprint import pprint
 from text2vec import SentenceModel, EncoderType
 import re
+
 class PreImage(Executor):
     def __init__(self, device: str = 'cpu', *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -124,13 +125,19 @@ class Caption(Executor):
 class EnglishToChineseTranslator(Executor):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        mode_name = 'liam168/trans-opus-mt-en-zh'
+        mode_name = 'kiddyt00/yt-tags-en-zh-v2'
+        # mode_name = 'liam168/trans-opus-mt-en-zh'
         # mode_name = 'nkuAlexLee/Pokemon_EN_to_ZH'
         # mode_name = 'Helsinki-NLP/opus-mt-en-zh'
-        model = AutoModelWithLMHead.from_pretrained(mode_name)
+        # model = AutoModelWithLMHead.from_pretrained(mode_name)
+        model = AutoModelForSeq2SeqLM.from_pretrained(mode_name)
         self.tokenizer = AutoTokenizer.from_pretrained(mode_name)
         # self.translation = pipeline("translation_en_to_zh", model=model, tokenizer=self.tokenizer)
         self.translation = pipeline("translation_en_to_zh", model=model, tokenizer=self.tokenizer)
+
+
+
+
 
     @requests
     def encode(self, docs: DocumentArray, **kwargs):
@@ -147,6 +154,7 @@ class EnglishToChineseTranslator(Executor):
             doc.text = translated_text
             print(doc.summary())
             print(doc.text)
+
 
     @requests(on="/search")
     def search(self, docs: DocumentArray, **kwargs):
@@ -185,6 +193,12 @@ class TextEncoder(Executor):
     def search(self, docs: DocumentArray, **kwargs):
         self._da.sync()  # Call the sync method
         print(f"Length of da_search is {len(self._da)}")
+        # tmp_docs = DocumentArray()
+        # for doc in docs:
+        #     tag_key = doc.text
+        #     if any(key.startswith(tag_key) or tag_key in key for key in doc.tags):
+        #         tmp_docs.append(doc)
+        #     doc.match(tmp_docs, limit=6, exclude_self=True, metric='cos', use_scipy=True)
         for doc in docs:
             doc.embedding = self._model.encode(doc.text)
             print(doc.text)
@@ -201,3 +215,8 @@ f = Flow().config_gateway(protocol='http', port=12345) \
 
 with f:
     f.block()
+
+# with f:
+#     for doc in f.index():
+#         if not doc.tags:
+#             f.delete(doc)
