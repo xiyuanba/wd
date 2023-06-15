@@ -6,6 +6,10 @@ import os
 import shutil
 import tempfile
 
+
+st.set_page_config(page_title="搜索结果", page_icon=":mag:", layout="wide")
+style = "<style>div.row-widget.stHorizontal{flex-wrap: nowrap !important;}</style>"
+st.markdown(style, unsafe_allow_html=True)
 # 上传文件并保存到指定目录中
 def save_uploaded_file(uploaded_file, target_dir):
     # 如果没有上传文件，则直接返回 None
@@ -33,8 +37,6 @@ if st.button('上传'):
         st.success(f"图片已成功保存到 {saved_file_path}")
 
 
-index_url = st.text_input('请输入创建索引的flow-url')
-
 if st.button('为上传图片建立索引'):
     # 从指定目录读取上传的文件内容
     image_uri = '/home/yingtie/PycharmProjects/image_index/images/'+ uploaded_file.name
@@ -49,12 +51,13 @@ if st.button('为上传图片建立索引'):
     img = Image.open(image_uri)
     # 缩放图像大小为原来的一半
     width, height = img.size
-    new_width, new_height = int(width / 2), int(height / 2)
+    new_width, new_height = int(width / 4), int(height / 4)
     img = img.resize((new_width, new_height))
     da.summary()
     for d in da:
         st.image(img, caption=uploaded_file.name)
         st.write("图片描述为：", d.text)
+        st.write("图片中识别的标签为:", d.tags)
 
 
 query_keyword = st.text_input('请输入关键词')
@@ -77,30 +80,37 @@ if st.button('搜索') and query_keyword is not None:
     uri_values = matches[0].matches[:, 'uri']
     text_values = matches[0].matches[:, 'text']
     score_values = matches[0].matches[:, 'scores__cos']
+    tags_list = matches[0].matches[:, 'tags']
+    print(tags_list)
     nums = [0, 1, 2, 3, 4]
-    for i, uri, text, score in zip(range(5), uri_values, text_values, score_values):
+    for i, uri, text, score, tags in zip(range(5), uri_values, text_values, score_values, tags_list):
         print(f"URI: {uri}, Text: {text}")
         img = Image.open(uri)
         if i == 0:
             with col1:
-                st.image(img, caption=text)
-                st.write("余弦相似度: ", score)
+                st.image(img, caption=text, use_column_width=True)
+                st.write(tags)
+                st.write("余弦相似度: ", score, )
         elif i == 1:
             with col2:
-                st.image(img, caption=text)
+                st.image(img, caption=text, use_column_width=True)
+                st.write(tags)
                 st.write("余弦相似度: ", score)
         elif i == 2:
             with col3:
-                st.image(img, caption=text)
+                st.image(img, caption=text, use_column_width=True)
+                st.write(tags)
                 st.write("余弦相似度: ", score)
         elif i == 3:
             with col4:
-                st.image(img, caption=text)
+                st.image(img, caption=text, use_column_width=True)
+                st.write(tags)
                 st.write("余弦相似度: ", score)
         else:
             with col5:
-                st.image(img, caption=text)
+                st.image(img, caption=text, use_column_width=True)
+                st.write(tags)
                 st.write("余弦相似度: ", score)
-    st.write("响应数据：", matches[0].matches[:, ('uri', 'text', 'scores__cos')])
+    st.write("响应数据：", matches[0].matches[:, ('uri', 'text', 'scores__cos', 'tags')])
 
 

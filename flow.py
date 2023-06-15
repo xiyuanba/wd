@@ -5,12 +5,12 @@ import onnxruntime as rt
 import pandas as pd
 from PIL import Image
 from Utils import dbimutils
-from transformers import AutoModelWithLMHead, AutoTokenizer, pipeline
+from transformers import AutoModelWithLMHead, AutoTokenizer, pipeline,BlipProcessor,BlipForConditionalGeneration
 import torch
 from tqdm import tqdm
 from pprint import pprint
 from text2vec import SentenceModel, EncoderType
-
+import re
 class PreImage(Executor):
     def __init__(self, device: str = 'cpu', *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -22,10 +22,10 @@ class PreImage(Executor):
         )
         self.model = rt.InferenceSession(path)
         label_filename = 'selected_tags.csv'
-        path = huggingface_hub.hf_hub_download(
-            model_repo, label_filename, use_auth_token=hf_token
-        )
-        df = pd.read_csv(path)
+        # path = huggingface_hub.hf_hub_download(
+        #     model_repo, label_filename, use_auth_token=hf_token
+        # )
+        df = pd.read_csv('selected_tags.csv')
         self.tag_names = df["name"].tolist()
         self.rating_indexes = list(np.where(df["category"] == 9)[0])
         self.general_indexes = list(np.where(df["category"] == 0)[0])
@@ -37,8 +37,9 @@ class PreImage(Executor):
 
     @requests
     def predict(self, docs: DocumentArray, **kwargs):
+        print("进入图片预处理步骤================")
         for doc in docs:
-            general_threshold = 0.5
+            general_threshold = 0.7
             character_threshold = 0.85
             img_path = doc.uri
             print(img_path)
@@ -81,17 +82,11 @@ class PreImage(Executor):
             tags_str = ','.join([tag for tag in general_res.keys()])
 
             b = dict(sorted(general_res.items(), key=lambda item: item[1], reverse=True))
-            a = (
-                ", ".join(list(b.keys()))
-                .replace("_", " ")
-                .replace("(", "\(")
-                .replace(")", "\)")
-            )
-            print(a)
-            doc.text = a
-            doc.tags = b
+            new_tags = {re.sub(r'\(.*?\)', '', key.replace('_', ' ')).strip(): value for key, value in b.items()}
+            print(f'doc.tags=', new_tags)
+            doc.tags = new_tags
             print("===========================")
-            print(general_res)
+
 
             # Everything else is characters: pick any where prediction confidence > threshold
             # character_names = [labels[i] for i in self.character_indexes]
@@ -103,23 +98,50 @@ class PreImage(Executor):
     def search(self, docs: DocumentArray, **kwargs):
         return docs
 
+class Caption(Executor):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.processor = BlipProcessor.from_pretrained("Salesforce/blip-image-captioning-base")
+        self.model = BlipForConditionalGeneration.from_pretrained("Salesforce/blip-image-captioning-base")
+
+    @requests
+    def caption(self, docs: DocumentArray, **kwargs):
+        for doc in tqdm(docs):
+            img_path = doc.uri
+            print(img_path)
+            raw_image = Image.open(img_path).convert('RGB')
+            # unconditional image captioning
+            inputs = self.processor(raw_image, return_tensors="pt")
+
+            out = self.model.generate(**inputs)
+            print(self.processor.decode(out[0], skip_special_tokens=True))
+            doc.text = self.processor.decode(out[0], skip_special_tokens=True)
+
+    @requests(on="/search")
+    def search(self, docs: DocumentArray, **kwargs):
+        return docs
 
 class EnglishToChineseTranslator(Executor):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         mode_name = 'liam168/trans-opus-mt-en-zh'
+        # mode_name = 'nkuAlexLee/Pokemon_EN_to_ZH'
+        # mode_name = 'Helsinki-NLP/opus-mt-en-zh'
         model = AutoModelWithLMHead.from_pretrained(mode_name)
         self.tokenizer = AutoTokenizer.from_pretrained(mode_name)
+        # self.translation = pipeline("translation_en_to_zh", model=model, tokenizer=self.tokenizer)
         self.translation = pipeline("translation_en_to_zh", model=model, tokenizer=self.tokenizer)
 
     @requests
     def encode(self, docs: DocumentArray, **kwargs):
         for doc in docs:
             # 执行翻译并将结果添加到文档
-            translated_text = self.translation(doc.text, max_length=400)[0]['translation_text']
+            out_key = 'translation_text'
+            # out_key = 'generated_text'
+            translated_text = self.translation(doc.text, max_length=400)[0][out_key]
             for tag_name, tag_value in doc.tags.copy().items():
                 print(f'{tag_name}: {tag_value}')
-                translated_tag = self.translation(tag_name, max_length=400)[0]['translation_text']
+                translated_tag = self.translation(tag_name, max_length=400)[0][out_key]
                 doc.tags[translated_tag] = tag_value
                 print(f'{translated_tag}: {tag_value}')
             doc.text = translated_text
@@ -145,7 +167,13 @@ class TextEncoder(Executor):
         print('start to index')
         print(f"Length of da_encode is {len(self._da)}")
         for doc in tqdm(docs):
-            doc.embedding = self._model.encode(doc.text)
+            print("==============in embedding state")
+
+            pre_emedding_text = doc.text
+            for key, value in doc.tags.items():
+                pre_emedding_text = pre_emedding_text + key
+            print(f'pre_emedding_text:',pre_emedding_text)
+            doc.embedding = self._model.encode(pre_emedding_text)
             print(doc.summary())
             with self._da:
                 self._da.append(doc)
@@ -167,7 +195,8 @@ class TextEncoder(Executor):
 
 f = Flow().config_gateway(protocol='http', port=12345) \
     .add(name='predict', uses=PreImage) \
-    .add(name='translate', uses=EnglishToChineseTranslator, needs='predict') \
+    .add(name='caption', uses=Caption, needs='predict') \
+    .add(name='translate', uses=EnglishToChineseTranslator, needs='caption') \
     .add(name='text_encoder', uses=TextEncoder, needs='translate')
 
 with f:
