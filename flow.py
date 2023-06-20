@@ -5,12 +5,15 @@ import onnxruntime as rt
 import pandas as pd
 from PIL import Image
 from Utils import dbimutils
-from transformers import AutoModelWithLMHead, AutoTokenizer, pipeline,BlipProcessor,BlipForConditionalGeneration,AutoModelForSeq2SeqLM
+from transformers import AutoModelWithLMHead, AutoTokenizer, AutoModelForTokenClassification,pipeline,BlipProcessor,BlipForConditionalGeneration,AutoModelForSeq2SeqLM,BertTokenizerFast,AutoModelForCausalLM
 import torch
 from tqdm import tqdm
 from pprint import pprint
 from text2vec import SentenceModel, EncoderType
 import re
+from ckip_transformers import __version__
+from ckip_transformers.nlp import CkipWordSegmenter, CkipPosTagger, CkipNerChunker
+
 
 class PreImage(Executor):
     def __init__(self, device: str = 'cpu', *args, **kwargs):
@@ -122,6 +125,24 @@ class Caption(Executor):
     def search(self, docs: DocumentArray, **kwargs):
         return docs
 
+class CaptionToTag(Executor):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.tokenizer = AutoTokenizer.from_pretrained("wietsedv/xlm-roberta-base-ft-udpos28-en")
+        self.model = AutoModelForTokenClassification.from_pretrained("wietsedv/xlm-roberta-base-ft-udpos28-en")
+
+    @requests
+    def encode(self, docs: DocumentArray, **kwargs):
+        print(f"in CaptionToTag")
+        for doc in docs:
+            chinese_tag = self.tokenizer(doc.text)
+            print(f'chinsese_tag:',chinese_tag)
+            print(f'doc.text:',doc.text)
+            print(f'doc.tags:',doc.tags)
+            print(doc.summary())
+    @requests(on="/search")
+    def search(self, docs: DocumentArray, **kwargs):
+        return docs
 class EnglishToChineseTranslator(Executor):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -134,10 +155,6 @@ class EnglishToChineseTranslator(Executor):
         self.tokenizer = AutoTokenizer.from_pretrained(mode_name)
         # self.translation = pipeline("translation_en_to_zh", model=model, tokenizer=self.tokenizer)
         self.translation = pipeline("translation_en_to_zh", model=model, tokenizer=self.tokenizer)
-
-
-
-
 
     @requests
     def encode(self, docs: DocumentArray, **kwargs):
@@ -156,6 +173,34 @@ class EnglishToChineseTranslator(Executor):
             print(doc.text)
 
 
+    @requests(on="/search")
+    def search(self, docs: DocumentArray, **kwargs):
+        return docs
+
+class ChineseTextToTag(Executor):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # mode_name = 'kiddyt00/yt-tags-en-zh-v2'
+        # model = AutoModelForSeq2SeqLM.from_pretrained(mode_name)
+        # self.tokenizer = AutoTokenizer.from_pretrained(mode_name)
+        # # self.translation = pipeline("translation_en_to_zh", model=model, tokenizer=self.tokenizer)
+        #
+        # casual language model (GPT2)
+        # self.tokenizer = BertTokenizerFast.from_pretrained('bert-base-chinese')
+        # self.model = AutoModelForCausalLM.from_pretrained('ckiplab/albert-tiny-chinese-ws')
+        # self.translation = pipeline("translation_en_to_zh", model=self.model, tokenizer=self.tokenizer)
+        self.ws_driver = CkipWordSegmenter(model="bert-base")
+        self.pos_driver = CkipPosTagger(model="bert-base")
+
+
+    @requests
+    def encode(self, docs: DocumentArray, **kwargs):
+        print(f"in ChineseTextToTag")
+        ws = self.ws_driver(docs.texts)
+        pos = self.pos_driver(ws)
+        print()
+
+        print(docs.summary())
     @requests(on="/search")
     def search(self, docs: DocumentArray, **kwargs):
         return docs
@@ -203,7 +248,7 @@ class TextEncoder(Executor):
             doc.embedding = self._model.encode(doc.text)
             print(doc.text)
             print(doc.summary())
-            doc.match(self._da, limit=6, exclude_self=True, metric='cos', use_scipy=True)
+            doc.match(self._da, limit=20, exclude_self=True, metric='cos', use_scipy=True)
             pprint(doc.matches[:, ('text', 'uri', 'scores__cos')])
 
 
@@ -211,7 +256,8 @@ f = Flow().config_gateway(protocol='http', port=12345) \
     .add(name='predict', uses=PreImage) \
     .add(name='caption', uses=Caption, needs='predict') \
     .add(name='translate', uses=EnglishToChineseTranslator, needs='caption') \
-    .add(name='text_encoder', uses=TextEncoder, needs='translate')
+    .add(name='chinesetotag', uses=ChineseTextToTag, needs='translate') \
+    .add(name='text_encoder', uses=TextEncoder, needs='chinesetotag')
 
 with f:
     f.block()

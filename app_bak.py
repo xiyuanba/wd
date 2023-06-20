@@ -62,7 +62,7 @@ if st.button('为上传图片建立索引'):
 
 query_keyword = st.text_input('请输入关键词')
 if st.button('搜索') and query_keyword is not None:
-    url = "http://172.66.1.189:12345"
+    url = "http://192.168.110.86:12345"
     c = Client(host=url)
     da_search = DocumentArray()
     # t1 = Document(text=query_keyword)
@@ -73,43 +73,23 @@ if st.button('搜索') and query_keyword is not None:
     )
     da_search.append(t1)
     print(da_search)
-    matches = c.post('/search', inputs=da_search, limit=6, show_progress=True)
+    matches = c.post('/search', inputs=da_search, limit=20, show_progress=True)
     # 使用切片操作获取所有元素的 uri 属性
-
+    nums = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
     col1, col2, col3, col4, col5 = st.columns(5)
-    uri_values = matches[0].matches[:, 'uri']
-    text_values = matches[0].matches[:, 'text']
-    score_values = matches[0].matches[:, 'scores__cos']
-    tags_list = matches[0].matches[:, 'tags']
-    print(tags_list)
-    nums = [0, 1, 2, 3, 4]
-    for i, uri, text, score, tags in zip(range(5), uri_values, text_values, score_values, tags_list):
-        print(f"URI: {uri}, Text: {text}")
-        img = Image.open(uri)
-        if i == 0:
-            with col1:
+    num_groups = [nums[:5], nums[5:10], nums[10:15], nums[15:20]]
+    for num_group in num_groups:
+        row_cols = [col1, col2, col3, col4, col5]
+        for i, num in enumerate(num_group):
+            uri = matches[0].matches[num].uri
+            text = matches[0].matches[num].text
+            score = matches[0].matches[num].scores['cos']
+            tags = matches[0].matches[num].tags
+            print(f"URI: {uri}, Text: {text}")
+            img = Image.open(uri)
+            with row_cols[i]:
                 st.image(img, caption=text, use_column_width=True)
-                st.write(tags)
-                st.write("余弦相似度: ", score, )
-        elif i == 1:
-            with col2:
-                st.image(img, caption=text, use_column_width=True)
-                st.write(tags)
-                st.write("余弦相似度: ", score)
-        elif i == 2:
-            with col3:
-                st.image(img, caption=text, use_column_width=True)
-                st.write(tags)
-                st.write("余弦相似度: ", score)
-        elif i == 3:
-            with col4:
-                st.image(img, caption=text, use_column_width=True)
-                st.write(tags)
-                st.write("余弦相似度: ", score)
-        else:
-            with col5:
-                st.image(img, caption=text, use_column_width=True)
-                st.write(tags)
+                # st.write(tags)
                 st.write("余弦相似度: ", score)
     st.write("响应数据：", matches[0].matches[:, ('uri', 'text', 'scores__cos', 'tags')])
 
