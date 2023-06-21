@@ -15,92 +15,92 @@ from ckip_transformers import __version__
 from ckip_transformers.nlp import CkipWordSegmenter, CkipPosTagger, CkipNerChunker
 
 
-class PreImage(Executor):
-    def __init__(self, device: str = 'cpu', *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        model_repo = 'SmilingWolf/wd-v1-4-swinv2-tagger-v2'
-        model_filename = 'model.onnx'
-        hf_token = 'hf_JMxVsgXZvlELeRCAdrsk CHCSTXaLGLwuvA'
-        path = huggingface_hub.hf_hub_download(
-            model_repo, model_filename, use_auth_token=hf_token
-        )
-        self.model = rt.InferenceSession(path)
-        label_filename = 'selected_tags.csv'
-        # path = huggingface_hub.hf_hub_download(
-        #     model_repo, label_filename, use_auth_token=hf_token
-        # )
-        df = pd.read_csv('selected_tags.csv')
-        self.tag_names = df["name"].tolist()
-        self.rating_indexes = list(np.where(df["category"] == 9)[0])
-        self.general_indexes = list(np.where(df["category"] == 0)[0])
-        self.character_indexes = list(np.where(df["category"] == 4)[0])
-        # print(f'tag_names', self.tag_names)
-        # print(f'rating_indexes', self.rating_indexes)
-        # print(f'general_indexes', self.general_indexes)
-        # print(f'character_indexes', self.character_indexes)
-
-    @requests
-    def predict(self, docs: DocumentArray, **kwargs):
-        print("进入图片预处理步骤================")
-        for doc in docs:
-            general_threshold = 0.7
-            character_threshold = 0.85
-            img_path = doc.uri
-            print(img_path)
-            image = Image.open(doc.uri)
-            rawimage = image
-            _, height, width, _ = self.model.get_inputs()[0].shape
-
-            # Alpha to white
-            image = image.convert("RGBA")
-            new_image = Image.new("RGBA", image.size, "WHITE")# 创建一个新的RGBA图像并将所有像素设置为白色
-            new_image.paste(image, mask=image)# 使用原始图像作为蒙版将所有不透明像素从新图像复制到新图像
-            image = new_image.convert("RGB")# 将图像转换为RGB模式
-            image = np.asarray(image) # 将图像转换为NumPy数组
-            # print(image)
-
-            # PIL RGB to OpenCV BGR
-            image = image[:, :, ::-1]
-
-            image = dbimutils.make_square(image, height)
-            image = dbimutils.smart_resize(image, height)
-            image = image.astype(np.float32)
-            image = np.expand_dims(image, 0)
-
-            input_name = self.model.get_inputs()[0].name
-            label_name = self.model.get_outputs()[0].name
-            probs = self.model.run([label_name], {input_name: image})[0]
-
-            labels = list(zip(self.tag_names, probs[0].astype(float)))
-            # labels = list(zip(self.tag_names, probs[0].astype(float)))[:10]
-            # print(labels)
-            # ratings_names = [labels[i] for i in self.rating_indexes]
-            # rating = dict(ratings_names)
-            # print("===========================")
-            # print(rating)
-
-            # Then we have general tags: pick anywhere prediction confidence > threshold
-            general_names = [labels[i] for i in self.general_indexes]
-            general_res = [x for x in general_names if x[1] > general_threshold]
-            general_res = dict(general_res)
-            tags_str = ','.join([tag for tag in general_res.keys()])
-
-            b = dict(sorted(general_res.items(), key=lambda item: item[1], reverse=True))
-            new_tags = {re.sub(r'\(.*?\)', '', key.replace('_', ' ')).strip(): value for key, value in b.items()}
-            print(f'doc.tags=', new_tags)
-            doc.tags = new_tags
-            print("===========================")
-
-
-            # Everything else is characters: pick any where prediction confidence > threshold
-            # character_names = [labels[i] for i in self.character_indexes]
-            # character_res = [x for x in character_names if x[1] > character_threshold]
-            # character_res = dict(character_res)
-            # print("===========================")
-            # print(character_res)
-    @requests(on="/search")
-    def search(self, docs: DocumentArray, **kwargs):
-        return docs
+# class PreImage(Executor):
+#     def __init__(self, device: str = 'cpu', *args, **kwargs):
+#         super().__init__(*args, **kwargs)
+#         model_repo = 'SmilingWolf/wd-v1-4-swinv2-tagger-v2'
+#         model_filename = 'model.onnx'
+#         hf_token = 'hf_JMxVsgXZvlELeRCAdrsk CHCSTXaLGLwuvA'
+#         path = huggingface_hub.hf_hub_download(
+#             model_repo, model_filename, use_auth_token=hf_token
+#         )
+#         self.model = rt.InferenceSession(path)
+#         label_filename = 'selected_tags.csv'
+#         # path = huggingface_hub.hf_hub_download(
+#         #     model_repo, label_filename, use_auth_token=hf_token
+#         # )
+#         df = pd.read_csv('selected_tags.csv')
+#         self.tag_names = df["name"].tolist()
+#         self.rating_indexes = list(np.where(df["category"] == 9)[0])
+#         self.general_indexes = list(np.where(df["category"] == 0)[0])
+#         self.character_indexes = list(np.where(df["category"] == 4)[0])
+#         # print(f'tag_names', self.tag_names)
+#         # print(f'rating_indexes', self.rating_indexes)
+#         # print(f'general_indexes', self.general_indexes)
+#         # print(f'character_indexes', self.character_indexes)
+#
+#     @requests
+#     def predict(self, docs: DocumentArray, **kwargs):
+#         print("进入图片预处理步骤================")
+#         for doc in docs:
+#             general_threshold = 0.7
+#             character_threshold = 0.85
+#             img_path = doc.uri
+#             print(img_path)
+#             image = Image.open(doc.uri)
+#             rawimage = image
+#             _, height, width, _ = self.model.get_inputs()[0].shape
+#
+#             # Alpha to white
+#             image = image.convert("RGBA")
+#             new_image = Image.new("RGBA", image.size, "WHITE")# 创建一个新的RGBA图像并将所有像素设置为白色
+#             new_image.paste(image, mask=image)# 使用原始图像作为蒙版将所有不透明像素从新图像复制到新图像
+#             image = new_image.convert("RGB")# 将图像转换为RGB模式
+#             image = np.asarray(image) # 将图像转换为NumPy数组
+#             # print(image)
+#
+#             # PIL RGB to OpenCV BGR
+#             image = image[:, :, ::-1]
+#
+#             image = dbimutils.make_square(image, height)
+#             image = dbimutils.smart_resize(image, height)
+#             image = image.astype(np.float32)
+#             image = np.expand_dims(image, 0)
+#
+#             input_name = self.model.get_inputs()[0].name
+#             label_name = self.model.get_outputs()[0].name
+#             probs = self.model.run([label_name], {input_name: image})[0]
+#
+#             labels = list(zip(self.tag_names, probs[0].astype(float)))
+#             # labels = list(zip(self.tag_names, probs[0].astype(float)))[:10]
+#             # print(labels)
+#             # ratings_names = [labels[i] for i in self.rating_indexes]
+#             # rating = dict(ratings_names)
+#             # print("===========================")
+#             # print(rating)
+#
+#             # Then we have general tags: pick anywhere prediction confidence > threshold
+#             general_names = [labels[i] for i in self.general_indexes]
+#             general_res = [x for x in general_names if x[1] > general_threshold]
+#             general_res = dict(general_res)
+#             tags_str = ','.join([tag for tag in general_res.keys()])
+#
+#             b = dict(sorted(general_res.items(), key=lambda item: item[1], reverse=True))
+#             new_tags = {re.sub(r'\(.*?\)', '', key.replace('_', ' ')).strip(): value for key, value in b.items()}
+#             print(f'doc.tags=', new_tags)
+#             doc.tags = new_tags
+#             print("===========================")
+#
+#
+#             # Everything else is characters: pick any where prediction confidence > threshold
+#             # character_names = [labels[i] for i in self.character_indexes]
+#             # character_res = [x for x in character_names if x[1] > character_threshold]
+#             # character_res = dict(character_res)
+#             # print("===========================")
+#             # print(character_res)
+#     @requests(on="/search")
+#     def search(self, docs: DocumentArray, **kwargs):
+#         return docs
 
 class Caption(Executor):
     def __init__(self, *args, **kwargs):
@@ -125,24 +125,24 @@ class Caption(Executor):
     def search(self, docs: DocumentArray, **kwargs):
         return docs
 
-class CaptionToTag(Executor):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.tokenizer = AutoTokenizer.from_pretrained("wietsedv/xlm-roberta-base-ft-udpos28-en")
-        self.model = AutoModelForTokenClassification.from_pretrained("wietsedv/xlm-roberta-base-ft-udpos28-en")
-
-    @requests
-    def encode(self, docs: DocumentArray, **kwargs):
-        print(f"in CaptionToTag")
-        for doc in docs:
-            chinese_tag = self.tokenizer(doc.text)
-            print(f'chinsese_tag:',chinese_tag)
-            print(f'doc.text:',doc.text)
-            print(f'doc.tags:',doc.tags)
-            print(doc.summary())
-    @requests(on="/search")
-    def search(self, docs: DocumentArray, **kwargs):
-        return docs
+# class CaptionToTag(Executor):
+#     def __init__(self, *args, **kwargs):
+#         super().__init__(*args, **kwargs)
+#         self.tokenizer = AutoTokenizer.from_pretrained("wietsedv/xlm-roberta-base-ft-udpos28-en")
+#         self.model = AutoModelForTokenClassification.from_pretrained("wietsedv/xlm-roberta-base-ft-udpos28-en")
+#
+#     @requests
+#     def encode(self, docs: DocumentArray, **kwargs):
+#         print(f"in CaptionToTag")
+#         for doc in docs:
+#             chinese_tag = self.tokenizer(doc.text)
+#             print(f'chinsese_tag:',chinese_tag)
+#             print(f'doc.text:',doc.text)
+#             print(f'doc.tags:',doc.tags)
+#             print(doc.summary())
+#     @requests(on="/search")
+#     def search(self, docs: DocumentArray, **kwargs):
+#         return docs
 class EnglishToChineseTranslator(Executor):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -163,11 +163,11 @@ class EnglishToChineseTranslator(Executor):
             out_key = 'translation_text'
             # out_key = 'generated_text'
             translated_text = self.translation(doc.text, max_length=400)[0][out_key]
-            for tag_name, tag_value in doc.tags.copy().items():
-                print(f'{tag_name}: {tag_value}')
-                translated_tag = self.translation(tag_name, max_length=400)[0][out_key]
-                doc.tags[translated_tag] = tag_value
-                print(f'{translated_tag}: {tag_value}')
+            # for tag_name, tag_value in doc.tags.copy().items():
+            #     print(f'{tag_name}: {tag_value}')
+            #     translated_tag = self.translation(tag_name, max_length=400)[0][out_key]
+            #     doc.tags[translated_tag] = tag_value
+            #     print(f'{translated_tag}: {tag_value}')
             doc.text = translated_text
             print(doc.summary())
             print(doc.text)
@@ -196,15 +196,29 @@ class ChineseTextToTag(Executor):
     @requests
     def encode(self, docs: DocumentArray, **kwargs):
         print(f"in ChineseTextToTag")
-        ws = self.ws_driver(docs.texts)
-        pos = self.pos_driver(ws)
-        print()
+        for doc in docs:
+            words = doc.text.split()
+            ws = self.ws_driver(words)
+            print(ws)
+            pos = self.pos_driver(ws)
+            print(pos)
+            for sentence_ws, sentence_pos in zip(ws, pos):
+                for word_ws, word_pos in zip(sentence_ws, sentence_pos):
+                    if (word_pos == 'Na' or word_pos == 'VH' or word_pos == 'Nc') and word_ws not in doc.tags:
+                        doc.tags[word_ws] = 1
+
 
         print(docs.summary())
     @requests(on="/search")
     def search(self, docs: DocumentArray, **kwargs):
         return docs
 
+    def pack_ws_pos_sentece(self,sentence_ws, sentence_pos):
+        assert len(sentence_ws) == len(sentence_pos)
+        res = []
+        for word_ws, word_pos in zip(sentence_ws, sentence_pos):
+            res.append(f"{word_ws}({word_pos})")
+        return "\u3000".join(res)
 class TextEncoder(Executor):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -252,9 +266,15 @@ class TextEncoder(Executor):
             pprint(doc.matches[:, ('text', 'uri', 'scores__cos')])
 
 
+# f = Flow().config_gateway(protocol='http', port=12345) \
+#     .add(name='predict', uses=PreImage) \
+#     .add(name='caption', uses=Caption, needs='predict') \
+#     .add(name='translate', uses=EnglishToChineseTranslator, needs='caption') \
+#     .add(name='chinesetotag', uses=ChineseTextToTag, needs='translate') \
+#     .add(name='text_encoder', uses=TextEncoder, needs='chinesetotag')
+
 f = Flow().config_gateway(protocol='http', port=12345) \
-    .add(name='predict', uses=PreImage) \
-    .add(name='caption', uses=Caption, needs='predict') \
+    .add(name='caption', uses=Caption) \
     .add(name='translate', uses=EnglishToChineseTranslator, needs='caption') \
     .add(name='chinesetotag', uses=ChineseTextToTag, needs='translate') \
     .add(name='text_encoder', uses=TextEncoder, needs='chinesetotag')
