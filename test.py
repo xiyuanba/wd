@@ -1,57 +1,46 @@
-#!/usr/bin/env python3
-# -*- coding:utf-8 -*-
+import json
 
-from ckip_transformers import __version__
-from ckip_transformers.nlp import CkipWordSegmenter, CkipPosTagger, CkipNerChunker
-
-
-def main():
-
-    # Show version
-    print(__version__)
-
-    # Initialize drivers
-    print("Initializing drivers ... WS")
-    ws_driver = CkipWordSegmenter(model="bert-base")
-    print("Initializing drivers ... POS")
-    pos_driver = CkipPosTagger(model="bert-base")
-    print("Initializing drivers ... NER")
-    ner_driver = CkipNerChunker(model="bert-base")
-    print("Initializing drivers ... done")
-    print()
-
-    # Input text
-    text = [
-        "一个年轻男孩在田里采草莓"
-    ]
-
-    # Run pipeline
-    print("Running pipeline ... WS")
-    ws = ws_driver(text)
-    print("Running pipeline ... POS")
-    pos = pos_driver(ws)
-    print("Running pipeline ... NER")
-    ner = ner_driver(text)
-    print("Running pipeline ... done")
-    print()
-
-    # Show results
-    for sentence, sentence_ws, sentence_pos, sentence_ner in zip(text, ws, pos, ner):
-        print(sentence)
-        print(pack_ws_pos_sentece(sentence_ws, sentence_pos))
-        for entity in sentence_ner:
-            print(entity)
-        print()
+import requests
+import torch
+from PIL import Image
+from transformers import AutoImageProcessor, Mask2FormerForUniversalSegmentation
 
 
-# Pack word segmentation and part-of-speech results
-def pack_ws_pos_sentece(sentence_ws, sentence_pos):
-    assert len(sentence_ws) == len(sentence_pos)
-    res = []
-    for word_ws, word_pos in zip(sentence_ws, sentence_pos):
-        res.append(f"{word_ws}({word_pos})")
-    return "\u3000".join(res)
+# load Mask2Former fine-tuned on COCO panoptic segmentation
+processor = AutoImageProcessor.from_pretrained("facebook/mask2former-swin-large-coco-panoptic")
+model = Mask2FormerForUniversalSegmentation.from_pretrained("facebook/mask2former-swin-large-coco-panoptic")
+
+url = "http://images.cocodataset.org/val2017/000000039769.jpg"
+image = Image.open(requests.get(url, stream=True).raw)
+inputs = processor(images=image, return_tensors="pt")
+
+with torch.no_grad():
+    outputs = model(**inputs)
+
+# model predicts class_queries_logits of shape `(batch_size, num_queries)`
+# and masks_queries_logits of shape `(batch_size, num_queries, height, width)`
+# class_queries_logits = outputs.
+# print(class_queries_logits)
+# masks_queries_logits = outputs.masks_queries_logits
+# print(masks_queries_logits)
+# you can pass them to processor for postprocessing
+# result = processor.post_process_panoptic_segmentation(outputs, target_sizes=[image.size[::-1]])[0]
+# result = processor.post_process_panoptic_segmentation(outputs, target_sizes=[image.size[::-1]])[0]
+# # we refer to the demo notebooks for visualization (see "Resources" section in the Mask2Former docs)
+# segments_info = result["segments_info"]
+# print(segments_info)
+# labels = [label_map.get(segment["label_id"], "unknown") for segment in segments_info]
+# print(labels)
 
 
-if __name__ == "__main__":
-    main()
+# load COCO label map
+with open("./id2label.json", "r") as f:
+    label_map = json.load(f)
+
+# postprocess the segmentation result using COCO labels
+result = processor.post_process_panoptic_segmentation(outputs, target_sizes=[image.size[::-1]], label_map=label_map)[0]
+
+# convert label_ids to labels using category list
+categories = result["categories"]
+labels = [categories[segment["category_id"] - 1]["name"] for segment in result["segments_info"]]
+print(labels)

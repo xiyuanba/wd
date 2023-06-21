@@ -1,11 +1,13 @@
-from jina import Flow,Executor,requests,DocumentArray
+from jina import Flow, Executor, requests, DocumentArray
 import huggingface_hub
 import numpy as np
 import onnxruntime as rt
 import pandas as pd
 from PIL import Image
 from Utils import dbimutils
-from transformers import AutoModelWithLMHead, AutoTokenizer, AutoModelForTokenClassification,pipeline,BlipProcessor,BlipForConditionalGeneration,AutoModelForSeq2SeqLM,BertTokenizerFast,AutoModelForCausalLM
+from transformers import AutoModelWithLMHead, AutoTokenizer, AutoModelForTokenClassification, pipeline, BlipProcessor, \
+    BlipForConditionalGeneration, AutoModelForSeq2SeqLM, BertTokenizerFast, AutoModelForCausalLM, \
+    YolosForObjectDetection, YolosImageProcessor, AutoImageProcessor, Mask2FormerForUniversalSegmentation
 import torch
 from tqdm import tqdm
 from pprint import pprint
@@ -43,7 +45,7 @@ from ckip_transformers.nlp import CkipWordSegmenter, CkipPosTagger, CkipNerChunk
 #     def predict(self, docs: DocumentArray, **kwargs):
 #         print("进入图片预处理步骤================")
 #         for doc in docs:
-#             general_threshold = 0.7
+#             general_threshold = 0.9
 #             character_threshold = 0.85
 #             img_path = doc.uri
 #             print(img_path)
@@ -125,6 +127,78 @@ class Caption(Executor):
     def search(self, docs: DocumentArray, **kwargs):
         return docs
 
+
+class ObjectDetection(Executor):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.model = YolosForObjectDetection.from_pretrained('hustvl/yolos-tiny')
+        self.image_processor = YolosImageProcessor.from_pretrained("hustvl/yolos-tiny")
+
+    @requests
+    def objectdetection(self, docs: DocumentArray, **kwargs):
+        for doc in tqdm(docs):
+            image = Image.open(doc.uri)
+            inputs = self.image_processor(images=image, return_tensors="pt")
+            outputs = self.model(**inputs)
+
+            # model predicts bounding boxes and corresponding COCO classes
+            logits = outputs.logits
+            bboxes = outputs.pred_boxes
+
+            # print results
+            target_sizes = torch.tensor([image.size[::-1]])
+            results = \
+            self.image_processor.post_process_object_detection(outputs, threshold=0.9, target_sizes=target_sizes)[
+                0]
+            for score, label, box in zip(results["scores"], results["labels"], results["boxes"]):
+                new_object = self.model.config.id2label[label.item()]
+                print(new_object)
+                doc.tags[new_object] = 2
+                # box = [round(i, 2) for i in box.tolist()]
+                # print(
+                #     f"Detected {self.model.config.id2label[label.item()]} with confidence "
+                #     f"{round(score.item(), 3)} at location {box}"
+                # )
+            print(doc.summary())
+
+    @requests(on="/search")
+    def search(self, docs: DocumentArray, **kwargs):
+        return docs
+
+
+class Segment(Executor):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.processor = AutoImageProcessor.from_pretrained("facebook/mask2former-swin-large-cityscapes-semantic")
+        self.model = Mask2FormerForUniversalSegmentation.from_pretrained("facebook/mask2former-swin-large-cityscapes-semantic")
+
+    @requests
+    def segment(self, docs: DocumentArray, **kwargs):
+        for doc in tqdm(docs):
+            image = Image.open(doc.uri)
+            inputs = self.processor(images=image, return_tensors="pt")
+
+            with torch.no_grad():
+                outputs = self.model(**inputs)
+                print(outputs)
+            # model predicts class_queries_logits of shape `(batch_size, num_queries)`
+            # and masks_queries_logits of shape `(batch_size, num_queries, height, width)`
+            class_queries_logits = outputs.class_queries_logits
+            masks_queries_logits = outputs.masks_queries_logits
+            print(class_queries_logits)
+            print(masks_queries_logits)
+            # you can pass them to processor for postprocessing
+            result = self.processor.post_process_semantic_segmentation(outputs, target_sizes=[image.size[::-1]])[0]
+            predicted_panoptic_map = result["segmentation"]
+            print(predicted_panoptic_map)
+
+            # we refer to the demo notebooks for visualization (see "Resources" section in the Mask2Former docs)
+
+    @requests(on="/search")
+    def search(self, docs: DocumentArray, **kwargs):
+        return docs
+
+
 # class CaptionToTag(Executor):
 #     def __init__(self, *args, **kwargs):
 #         super().__init__(*args, **kwargs)
@@ -163,19 +237,19 @@ class EnglishToChineseTranslator(Executor):
             out_key = 'translation_text'
             # out_key = 'generated_text'
             translated_text = self.translation(doc.text, max_length=400)[0][out_key]
-            # for tag_name, tag_value in doc.tags.copy().items():
-            #     print(f'{tag_name}: {tag_value}')
-            #     translated_tag = self.translation(tag_name, max_length=400)[0][out_key]
-            #     doc.tags[translated_tag] = tag_value
-            #     print(f'{translated_tag}: {tag_value}')
+            for tag_name, tag_value in doc.tags.copy().items():
+                print(f'{tag_name}: {tag_value}')
+                translated_tag = self.translation(tag_name, max_length=400)[0][out_key]
+                doc.tags[translated_tag] = tag_value
+                print(f'{translated_tag}: {tag_value}')
             doc.text = translated_text
             print(doc.summary())
             print(doc.text)
 
-
     @requests(on="/search")
     def search(self, docs: DocumentArray, **kwargs):
         return docs
+
 
 class ChineseTextToTag(Executor):
     def __init__(self, *args, **kwargs):
@@ -192,7 +266,6 @@ class ChineseTextToTag(Executor):
         self.ws_driver = CkipWordSegmenter(model="bert-base")
         self.pos_driver = CkipPosTagger(model="bert-base")
 
-
     @requests
     def encode(self, docs: DocumentArray, **kwargs):
         print(f"in ChineseTextToTag")
@@ -207,18 +280,20 @@ class ChineseTextToTag(Executor):
                     if (word_pos == 'Na' or word_pos == 'VH' or word_pos == 'Nc') and word_ws not in doc.tags:
                         doc.tags[word_ws] = 1
 
-
         print(docs.summary())
+
     @requests(on="/search")
     def search(self, docs: DocumentArray, **kwargs):
         return docs
 
-    def pack_ws_pos_sentece(self,sentence_ws, sentence_pos):
+    def pack_ws_pos_sentece(self, sentence_ws, sentence_pos):
         assert len(sentence_ws) == len(sentence_pos)
         res = []
         for word_ws, word_pos in zip(sentence_ws, sentence_pos):
             res.append(f"{word_ws}({word_pos})")
         return "\u3000".join(res)
+
+
 class TextEncoder(Executor):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -239,7 +314,7 @@ class TextEncoder(Executor):
             pre_emedding_text = doc.text
             for key, value in doc.tags.items():
                 pre_emedding_text = pre_emedding_text + key
-            print(f'pre_emedding_text:',pre_emedding_text)
+            print(f'pre_emedding_text:', pre_emedding_text)
             doc.embedding = self._model.encode(pre_emedding_text)
             print(doc.summary())
             with self._da:
@@ -273,11 +348,20 @@ class TextEncoder(Executor):
 #     .add(name='chinesetotag', uses=ChineseTextToTag, needs='translate') \
 #     .add(name='text_encoder', uses=TextEncoder, needs='chinesetotag')
 
+# f = Flow().config_gateway(protocol='http', port=12345) \
+#     .add(name='predict', uses=PreImage) \
+#     .add(name='caption', uses=Caption, needs='predict') \
+#     .add(name='translate', uses=EnglishToChineseTranslator, needs='caption') \
+#     .add(name='chinesetotag', uses=ChineseTextToTag, needs='translate') \
+#     .add(name='text_encoder', uses=TextEncoder, needs='chinesetotag')
+
 f = Flow().config_gateway(protocol='http', port=12345) \
-    .add(name='caption', uses=Caption) \
-    .add(name='translate', uses=EnglishToChineseTranslator, needs='caption') \
-    .add(name='chinesetotag', uses=ChineseTextToTag, needs='translate') \
-    .add(name='text_encoder', uses=TextEncoder, needs='chinesetotag')
+    .add(name='objectdetection', uses=ObjectDetection) \
+    .add(name='segment', uses=Segment, needs='objectdetection')
+# .add(name='caption', uses=Caption, needs='predict') \
+# .add(name='translate', uses=EnglishToChineseTranslator, needs='caption') \
+# .add(name='chinesetotag', uses=ChineseTextToTag, needs='translate') \
+# .add(name='text_encoder', uses=TextEncoder, needs='chinesetotag')
 
 with f:
     f.block()
