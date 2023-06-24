@@ -7,7 +7,8 @@ from PIL import Image
 from Utils import dbimutils
 from transformers import AutoModelWithLMHead, AutoTokenizer, AutoModelForTokenClassification, pipeline, BlipProcessor, \
     BlipForConditionalGeneration, AutoModelForSeq2SeqLM, BertTokenizerFast, AutoModelForCausalLM, \
-    YolosForObjectDetection, YolosImageProcessor, AutoImageProcessor, Mask2FormerForUniversalSegmentation
+    YolosForObjectDetection, YolosImageProcessor, MaskFormerImageProcessor, MaskFormerForInstanceSegmentation, \
+AutoImageProcessor,Mask2FormerForUniversalSegmentation
 import torch
 from tqdm import tqdm
 from pprint import pprint
@@ -147,9 +148,7 @@ class ObjectDetection(Executor):
 
             # print results
             target_sizes = torch.tensor([image.size[::-1]])
-            results = \
-            self.image_processor.post_process_object_detection(outputs, threshold=0.9, target_sizes=target_sizes)[
-                0]
+            results = self.image_processor.post_process_object_detection(outputs, threshold=0.9, target_sizes=target_sizes)[0]
             for score, label, box in zip(results["scores"], results["labels"], results["boxes"]):
                 new_object = self.model.config.id2label[label.item()]
                 print(new_object)
@@ -169,30 +168,32 @@ class ObjectDetection(Executor):
 class Segment(Executor):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.processor = AutoImageProcessor.from_pretrained("facebook/mask2former-swin-large-cityscapes-semantic")
-        self.model = Mask2FormerForUniversalSegmentation.from_pretrained("facebook/mask2former-swin-large-cityscapes-semantic")
+        # self.feature_extractor = MaskFormerImageProcessor.from_pretrained("facebook/maskformer-swin-base-coco")
+        # self.model = MaskFormerForInstanceSegmentation.from_pretrained("facebook/maskformer-swin-base-coco")
+        self.processor = AutoImageProcessor.from_pretrained("facebook/mask2former-swin-large-coco-panoptic")
+        self.model = Mask2FormerForUniversalSegmentation.from_pretrained("facebook/mask2former-swin-large-coco-panoptic")
+        self.label_list = self.model.config.id2label
+        print(self.label_list)
 
     @requests
     def segment(self, docs: DocumentArray, **kwargs):
+        print("in segment state")
         for doc in tqdm(docs):
             image = Image.open(doc.uri)
             inputs = self.processor(images=image, return_tensors="pt")
-
             with torch.no_grad():
                 outputs = self.model(**inputs)
-                print(outputs)
-            # model predicts class_queries_logits of shape `(batch_size, num_queries)`
-            # and masks_queries_logits of shape `(batch_size, num_queries, height, width)`
-            class_queries_logits = outputs.class_queries_logits
-            masks_queries_logits = outputs.masks_queries_logits
-            print(class_queries_logits)
-            print(masks_queries_logits)
-            # you can pass them to processor for postprocessing
-            result = self.processor.post_process_semantic_segmentation(outputs, target_sizes=[image.size[::-1]])[0]
-            predicted_panoptic_map = result["segmentation"]
-            print(predicted_panoptic_map)
 
-            # we refer to the demo notebooks for visualization (see "Resources" section in the Mask2Former docs)
+
+            result = self.processor.post_process_panoptic_segmentation(outputs, target_sizes=[image.size[::-1]])[0]
+
+            segments_info = result["segments_info"]
+            for segment in segments_info:
+                label_id = segment["label_id"]
+                new_seg = self.label_list[label_id]
+                print(new_seg)
+                doc.tags[new_seg] = 3
+            print(doc.summary())
 
     @requests(on="/search")
     def search(self, docs: DocumentArray, **kwargs):
@@ -357,11 +358,13 @@ class TextEncoder(Executor):
 
 f = Flow().config_gateway(protocol='http', port=12345) \
     .add(name='objectdetection', uses=ObjectDetection) \
-    .add(name='segment', uses=Segment, needs='objectdetection')
-# .add(name='caption', uses=Caption, needs='predict') \
-# .add(name='translate', uses=EnglishToChineseTranslator, needs='caption') \
-# .add(name='chinesetotag', uses=ChineseTextToTag, needs='translate') \
-# .add(name='text_encoder', uses=TextEncoder, needs='chinesetotag')
+    .add(name='segment', uses=Segment, needs='objectdetection') \
+    .add(name='caption', uses=Caption, needs='segment') \
+    .add(name='translate', uses=EnglishToChineseTranslator, needs='caption') \
+    .add(name='chinesetotag', uses=ChineseTextToTag, needs='translate') \
+    .add(name='text_encoder', uses=TextEncoder, needs='chinesetotag')
+
+
 
 with f:
     f.block()
